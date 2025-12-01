@@ -1,7 +1,8 @@
 import streamlit as st
 import tempfile
 import os
-from moviepy.editor import VideoFileClip
+from moviepy import VideoFileClip 
+# ↑ 変更点: .editor を削除しました
 
 # ページ設定
 st.set_page_config(page_title="動画 to GIF コンバーター", page_icon="🎞️")
@@ -28,18 +29,19 @@ if uploaded_file is not None:
     
     # 動画情報の表示
     st.video(uploaded_file)
-    st.info(f"元の動画の長さ: {clip.duration}秒, 解像度: {clip.size}")
+    st.info(f"元の動画の長さ: {clip.duration}秒")
 
     # 変換ボタン
     if st.button("GIFに変換する"):
         with st.spinner('変換中...しばらくお待ちください'):
             try:
-                # 設定の適用（リサイズ、速度変更）
-                processed_clip = clip.resize(resize_factor).speedx(speed_factor)
+                # 設定の適用（MoviePy v2.xの書き方に変更）
+                # resized: リサイズ
+                # with_speed_scaled: 速度変更
+                processed_clip = clip.resized(resize_factor).with_speed_scaled(speed_factor)
                 
                 # 一時ファイルへGIFを出力
                 gif_path = tempfile.mktemp(suffix=".gif")
-                # moviepyのバージョンによってはprogram='ffmpeg'が必要
                 processed_clip.write_gif(gif_path, fps=fps_value)
 
                 # 結果の表示
