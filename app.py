@@ -4,7 +4,7 @@ import os
 from moviepy import VideoFileClip
 import time
 
-# ページ設定
+# ページ設定: タイトルやアイコン、レイアウトを定義
 st.set_page_config(
     page_title="動画 to GIF コンバーター Pro",
     page_icon="🎞️",
@@ -13,7 +13,7 @@ st.set_page_config(
 
 def get_file_size_str(file_path):
     """
-    ファイルの容量を読みやすい単位(KB/MB)に変換して返す関数
+    生成されたファイルの容量を計算し、KB/MB単位の文字列で返す関数
     """
     size_bytes = os.path.getsize(file_path)
     if size_bytes < 1024:
@@ -26,108 +26,115 @@ def get_file_size_str(file_path):
 def main():
     st.title("🎞️ 動画 GIF 変換アプリ")
     st.markdown("""
-    動画をアップロードして、サイズや速度を調整したGIFアニメーションを作成できます。
+    動画をアップロードして、**トリミング（時間）**、**クロップ（上下カット）**、**速度**を調整したGIFを作成できます。
     """)
 
-    # サイドバー: 変換設定
+    # サイドバー: 変換の基本設定
     st.sidebar.header("⚙️ 変換設定")
     resize_factor = st.sidebar.slider("サイズ縮小率 (1.0 = そのまま)", 0.1, 1.0, 0.5, 0.05)
-    fps_value = st.sidebar.slider("フレームレート (FPS)", 5, 30, 10, help="値が高いほど滑らかですが、ファイルサイズが増えます。")
+    fps_value = st.sidebar.slider("フレームレート (FPS)", 5, 30, 10, help="値が高いほど滑らかですが、容量が増えます。")
     speed_factor = st.sidebar.slider("再生速度 (倍速)", 0.5, 5.0, 1.0, 0.1)
 
-    st.sidebar.info("💡 **容量を小さくするコツ:**\n- 縮小率を下げる\n- FPSを10〜15にする\n- トリミングで秒数を短くする")
+    st.sidebar.info("💡 **容量を抑えるヒント:**\n- 縮小率を0.5以下にする\n- FPSを10〜15にする\n- 不要な上下をカットする")
 
-    # ファイルアップロード
-    uploaded_file = st.file_uploader("動画ファイルを選択してください", type=["mp4", "mov", "avi", "mkv"])
+    # メイン画面: ファイルアップロード
+    uploaded_file = st.file_uploader("動画ファイルをアップロード (mp4, mov, avi, mkv)", type=["mp4", "mov", "avi", "mkv"])
 
     if uploaded_file is not None:
-        # 一時ファイルとして動画を保存
+        # 動画を一時ファイルとして保存
         with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as tfile:
             tfile.write(uploaded_file.read())
             temp_video_path = tfile.name
 
         try:
-            # 動画の読み込み
+            # 動画ファイルを読み込み
             clip = VideoFileClip(temp_video_path)
             duration = clip.duration
+            width, height = clip.size
 
+            # 元動画のプレビューと情報を表示
             st.video(uploaded_file)
-            st.info(f"📹 元動画の情報: 長さ {duration:.2f}秒 / サイズ {clip.w}x{clip.h}")
+            st.info(f"📹 元動画: {duration:.2f}秒 / サイズ: {width} x {height}")
 
-            # トリミング設定
-            st.subheader("✂️ 範囲指定")
-            col1, col2 = st.columns(2)
-            with col1:
+            # 詳細設定エリアを2カラムで表示
+            col_trim, col_crop = st.columns(2)
+            
+            with col_trim:
+                st.subheader("✂️ 時間の指定")
                 start_time = st.number_input("開始時間 (秒)", min_value=0.0, max_value=duration, value=0.0, step=0.1)
-            with col2:
                 end_time = st.number_input("終了時間 (秒)", min_value=0.0, max_value=duration, value=min(duration, 5.0), step=0.1)
 
+            with col_crop:
+                st.subheader("🖼️ 上下のカット")
+                top_crop = st.slider("上端から削る (px)", 0, height // 2, 0)
+                bottom_crop = st.slider("下端から削る (px)", 0, height // 2, 0)
+                st.caption(f"カット後の高さ: {height - top_crop - bottom_crop} px")
+                
+            # 入力チェック
             if start_time >= end_time:
-                st.error("エラー: 開始時間は終了時間より前である必要があります。")
+                st.error("エラー: 開始時間は終了時間より前に設定してください。")
                 return
 
-            # 変換実行ボタン
-            if st.button("🚀 GIFに変換開始", use_container_width=True):
-                process_video(clip, start_time, end_time, resize_factor, speed_factor, fps_value)
+            # 変換ボタン
+            if st.button("🚀 GIF変換を開始する", use_container_width=True):
+                new_h = height - top_crop - bottom_crop
+                if new_h <= 0:
+                    st.error("エラー: 全てをカットすることはできません。")
+                else:
+                    process_video(clip, start_time, end_time, resize_factor, speed_factor, fps_value, top_crop, bottom_crop)
 
         except Exception as e:
-            st.error(f"動画の読み込み中にエラーが発生しました: {e}")
+            st.error(f"動画の処理中にエラーが発生しました: {e}")
         finally:
-            # メモリ解放
+            # メモリ解放と一時ファイルの削除
             if 'clip' in locals():
                 clip.close()
-            # 動画の一時ファイルを削除
             if os.path.exists(temp_video_path):
                 os.remove(temp_video_path)
 
-def process_video(clip, start, end, resize, speed, fps):
+def process_video(clip, start, end, resize, speed, fps, top, bottom):
     """
-    動画処理とGIF生成を行う関数
+    MoviePyを使用して動画を加工し、GIFとして出力する関数
     """
     output_gif_path = tempfile.mktemp(suffix=".gif")
-    
     progress_bar = st.progress(0)
     status_text = st.empty()
     
     try:
-        status_text.text("動画を加工中...")
-        progress_bar.progress(20)
+        status_text.text("動画を編集しています...")
+        progress_bar.progress(25)
 
-        # 処理用クリップ作成
+        # 編集の適用 (MoviePy 2.x のメソッド名を使用)
+        width, height = clip.size
         processed_clip = (
-            clip.subclipped(start, end)
-                .resized(resize)
-                .with_speed_scaled(speed)
+            clip.subclipped(start, end)           # 時間トリミング
+                .cropped(y1=top, y2=height-bottom) # 上下クロップ
+                .resized(resize)                  # リサイズ
+                .with_speed_scaled(speed)         # 速度変更
         )
 
-        status_text.text("GIFファイルを書き出し中... (容量を計算しています)")
+        status_text.text("GIFを書き出し中... (これには時間がかかる場合があります)")
         progress_bar.progress(50)
         
-        # GIF書き出し
+        # GIFの保存
         processed_clip.write_gif(output_gif_path, fps=fps, logger=None)
         
         progress_bar.progress(100)
-        status_text.text("変換完了！")
+        status_text.text("完了！")
 
-        # ファイル容量の取得
+        # 容量の計算
         file_size_str = get_file_size_str(output_gif_path)
-
-        # 結果の表示
-        st.success(f"✅ GIFの作成に成功しました！ (ファイル容量: {file_size_str})")
+        st.success(f"✅ GIFが完成しました！ (ファイル容量: {file_size_str})")
         
-        # 容量に応じたアドバイス
-        if "MB" in file_size_str and float(file_size_str.split()[0]) > 10.0:
-            st.warning("⚠️ ファイルサイズが10MBを超えています。Webサイト等で使用する場合は、設定でサイズやFPSを下げて再試行することをお勧めします。")
+        # プレビュー表示
+        st.image(output_gif_path, caption=f"プレビュー: {file_size_str}")
 
-        st.image(output_gif_path, caption=f"生成されたGIFプレビュー ({file_size_str})")
-
-        # ダウンロード
+        # ダウンロードボタン
         with open(output_gif_path, "rb") as f:
-            gif_data = f.read()
             st.download_button(
                 label=f"💾 GIFをダウンロード ({file_size_str})",
-                data=gif_data,
-                file_name="converted_animation.gif",
+                data=f.read(),
+                file_name="converted.gif",
                 mime="image/gif",
                 use_container_width=True
             )
@@ -135,6 +142,7 @@ def process_video(clip, start, end, resize, speed, fps):
     except Exception as e:
         st.error(f"変換中にエラーが発生しました: {e}")
     finally:
+        # クリップの解放と一時ファイルのクリーンアップ
         if 'processed_clip' in locals():
             processed_clip.close()
         if os.path.exists(output_gif_path):
