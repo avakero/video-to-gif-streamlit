@@ -39,7 +39,7 @@ def main():
 
     st.title("🎞️ モバイル GIF 変換")
     
-    # 1. ファイルアップロード（一番上に配置）
+    # 1. ファイルアップロード
     uploaded_file = st.file_uploader("動画を選択", type=["mp4", "mov", "avi", "mkv"])
 
     if uploaded_file is not None:
@@ -61,7 +61,7 @@ def main():
 
             with tab_time:
                 st.subheader("再生区間の指定")
-                # スライダー1つで開始と終了を直感的に選択
+                # スライダーで開始と終了を選択
                 time_range = st.slider(
                     "作成する範囲 (秒)",
                     0.0, float(duration), (0.0, min(float(duration), 5.0)),
@@ -71,23 +71,34 @@ def main():
                 start_time, end_time = time_range
 
             with tab_crop:
-                st.subheader("上下のカット")
-                top_crop = st.slider("上から削る (px)", 0, height // 2, 0)
-                bottom_crop = st.slider("下から削る (px)", 0, height // 2, 0)
-                new_h = height - top_crop - bottom_crop
+                st.subheader("画面の切り抜き")
                 
-                # クロップ後のプレビューをここに配置（視覚的な確認）
+                # 上下左右のクロップを2列で配置
+                col_left, col_right = st.columns(2)
+                with col_left:
+                    top_crop = st.slider("上を削る (px)", 0, height // 2, 0)
+                    bottom_crop = st.slider("下を削る (px)", 0, height // 2, 0)
+                with col_right:
+                    left_crop = st.slider("左を削る (px)", 0, width // 2, 0)
+                    right_crop = st.slider("右を削る (px)", 0, width // 2, 0)
+                
+                # 新しいサイズ計算
+                new_h = height - top_crop - bottom_crop
+                new_w = width - left_crop - right_crop
+                
+                # クロップ後のプレビュー表示
                 try:
                     frame_img = clip.get_frame(start_time)
-                    cropped_frame = frame_img[top_crop:height-bottom_crop, :]
-                    st.image(cropped_frame, caption="切り抜き後のプレビュー", use_container_width=True)
-                except:
+                    # NumPy配列のスライスでプレビュー作成 [y_start:y_end, x_start:x_end]
+                    cropped_frame = frame_img[top_crop:height-bottom_crop, left_crop:width-right_crop]
+                    st.image(cropped_frame, caption=f"プレビュー: {new_w}x{new_h}", use_container_width=True)
+                except Exception as e:
                     st.caption("プレビューを表示できません")
 
             with tab_config:
                 st.subheader("書き出し詳細")
                 resize_factor = st.select_slider(
-                    "解像度 (縮小率)",
+                    "解解像度 (縮小率)",
                     options=[0.1, 0.25, 0.5, 0.75, 1.0],
                     value=0.5,
                     format_func=lambda x: f"{int(x*100)}%"
@@ -103,23 +114,25 @@ def main():
             st.divider()
             st.markdown("### 🚀 変換の準備完了")
             status_msg = f"**範囲:** {start_time}s ～ {end_time}s ({end_time - start_time:.1f}s)\n\n" \
-                         f"**サイズ:** {int(width*resize_factor)} x {int(new_h*resize_factor)} px"
+                         f"**最終サイズ:** {int(new_w*resize_factor)} x {int(new_h*resize_factor)} px"
             st.write(status_msg)
 
             if st.button("GIFを作成する", type="primary", use_container_width=True):
-                process_video(clip, start_time, end_time, resize_factor, speed_factor, fps_value, top_crop, bottom_crop)
+                process_video(
+                    clip, start_time, end_time, resize_factor, speed_factor, 
+                    fps_value, top_crop, bottom_crop, left_crop, right_crop
+                )
 
         except Exception as e:
             st.error(f"読み込みエラー: {e}")
         finally:
-            # 終了処理（動画クリップの解放）
             if 'clip' in locals():
                 clip.close()
-            # 一時ファイルの削除は変換後に行う必要があるため、ここではパスの管理のみ
+            # 注意: ファイルの削除は変換フロー内、またはアプリ終了時に検討してください
     else:
         st.write("動画をアップロードすると編集メニューが表示されます。")
 
-def process_video(clip, start, end, resize, speed, fps, top, bottom):
+def process_video(clip, start, end, resize, speed, fps, top, bottom, left, right):
     """動画処理と書き出しのロジック"""
     output_gif_path = tempfile.mktemp(suffix=".gif")
     progress_container = st.container()
@@ -130,12 +143,12 @@ def process_video(clip, start, end, resize, speed, fps, top, bottom):
         
         try:
             status_text.text("動画を処理中...")
-            width, height = clip.size
+            w, h = clip.size
             
-            # 処理チェーン
+            # 処理チェーン: 指定された範囲でカット、クロップ、リサイズ、速度変更
             processed_clip = (
                 clip.subclipped(start, end)
-                    .cropped(y1=top, y2=height-bottom)
+                    .cropped(x1=left, y1=top, x2=w-right, y2=h-bottom)
                     .resized(resize)
                     .with_speed_scaled(speed)
             )
@@ -168,7 +181,6 @@ def process_video(clip, start, end, resize, speed, fps, top, bottom):
         finally:
             if 'processed_clip' in locals():
                 processed_clip.close()
-            # 生成したGIFを少しの間保持してから削除するか、Streamlitのクリーンアップに任せる
 
 if __name__ == "__main__":
     main()
