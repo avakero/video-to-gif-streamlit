@@ -44,7 +44,8 @@ def main():
 
     if uploaded_file is not None:
         # 一時ファイルに保存
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as tfile:
+        suffix = os.path.splitext(uploaded_file.name)[1]
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tfile:
             tfile.write(uploaded_file.read())
             temp_video_path = tfile.name
 
@@ -91,14 +92,15 @@ def main():
                     frame_img = clip.get_frame(start_time)
                     # NumPy配列のスライスでプレビュー作成 [y_start:y_end, x_start:x_end]
                     cropped_frame = frame_img[top_crop:height-bottom_crop, left_crop:width-right_crop]
-                    st.image(cropped_frame, caption=f"プレビュー: {new_w}x{new_h}", use_container_width=True)
+                    # use_container_width=True を width='stretch' に変更
+                    st.image(cropped_frame, caption=f"プレビュー: {new_w}x{new_h}", width='stretch')
                 except Exception as e:
-                    st.caption("プレビューを表示できません")
+                    st.caption(f"プレビューを表示できません: {e}")
 
             with tab_config:
                 st.subheader("書き出し詳細")
                 resize_factor = st.select_slider(
-                    "解解像度 (縮小率)",
+                    "解像度 (縮小率)",
                     options=[0.1, 0.25, 0.5, 0.75, 1.0],
                     value=0.5,
                     format_func=lambda x: f"{int(x*100)}%"
@@ -117,7 +119,8 @@ def main():
                          f"**最終サイズ:** {int(new_w*resize_factor)} x {int(new_h*resize_factor)} px"
             st.write(status_msg)
 
-            if st.button("GIFを作成する", type="primary", use_container_width=True):
+            # use_container_width=True を width='stretch' に変更
+            if st.button("GIFを作成する", type="primary", width='stretch'):
                 process_video(
                     clip, start_time, end_time, resize_factor, speed_factor, 
                     fps_value, top_crop, bottom_crop, left_crop, right_crop
@@ -128,13 +131,18 @@ def main():
         finally:
             if 'clip' in locals():
                 clip.close()
-            # 注意: ファイルの削除は変換フロー内、またはアプリ終了時に検討してください
+            # 一時ビデオファイルの削除（必要に応じて有効化）
+            # if os.path.exists(temp_video_path):
+            #     os.remove(temp_video_path)
     else:
         st.write("動画をアップロードすると編集メニューが表示されます。")
 
 def process_video(clip, start, end, resize, speed, fps, top, bottom, left, right):
     """動画処理と書き出しのロジック"""
-    output_gif_path = tempfile.mktemp(suffix=".gif")
+    # 一時ファイルのパス生成
+    fd, output_gif_path = tempfile.mkstemp(suffix=".gif")
+    os.close(fd) # パスだけ確保してファイルディスクリプタを閉じる
+
     progress_container = st.container()
     
     with progress_container:
@@ -164,7 +172,9 @@ def process_video(clip, start, end, resize, speed, fps, top, bottom, left, right
 
             file_size = get_file_size_str(output_gif_path)
             st.success(f"✅ 完成！ ({file_size})")
-            st.image(output_gif_path, use_container_width=True)
+            
+            # width='stretch' に変更
+            st.image(output_gif_path, width='stretch')
 
             # ダウンロードボタン
             with open(output_gif_path, "rb") as f:
@@ -173,7 +183,7 @@ def process_video(clip, start, end, resize, speed, fps, top, bottom, left, right
                     data=f.read(),
                     file_name="result.gif",
                     mime="image/gif",
-                    use_container_width=True
+                    width='stretch'
                 )
 
         except Exception as e:
@@ -181,6 +191,8 @@ def process_video(clip, start, end, resize, speed, fps, top, bottom, left, right
         finally:
             if 'processed_clip' in locals():
                 processed_clip.close()
+            # 生成した一時GIFの削除はStreamlitのセッションが続く限り行わないか、
+            # あるいはダウンロード後に削除する工夫が必要です。
 
 if __name__ == "__main__":
     main()
